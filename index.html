@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>五子棋 · 互联网联机版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', Roboto, sans-serif;
+            background: #2b1a0e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+            user-select: none;
+        }
+        .container {
+            background: #d4a56a;
+            background-image: radial-gradient(circle at 20% 25%, #e8c594 0%, #c4955a 90%);
+            padding: 30px 35px 35px 35px;
+            border-radius: 48px 48px 32px 32px;
+            box-shadow: 0 30px 50px rgba(0,0,0,0.8), 0 0 0 2px #b8894e inset, 0 0 0 6px #e8c594 inset;
+            max-width: 750px;
+            width: 100%;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .title { font-size: 26px; font-weight: 700; color: #3d2412; text-shadow: 0 2px 4px rgba(255,215,150,0.3); }
+        .status-badge {
+            background: #2b1a0e;
+            padding: 6px 16px;
+            border-radius: 40px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #f0d6b0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            border: 1px solid #b8894e;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-badge .dot {
+            display: inline-block;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse-dot 1.4s infinite;
+        }
+        .status-badge .dot.offline { background: #f44336; animation: none; }
+        .status-badge .dot.connecting { background: #ffa500; animation: pulse-dot 0.8s infinite; }
+        @keyframes pulse-dot {
+            0%,100% { opacity:1; transform:scale(1); }
+            50% { opacity:0.4; transform:scale(0.8); }
+        }
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #2b1a0e;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .info-bar .turn-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(43,26,14,0.15);
+            padding: 4px 14px 4px 10px;
+            border-radius: 30px;
+            backdrop-filter: blur(2px);
+        }
+        .info-bar .turn-stone {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.2);
+            flex-shrink: 0;
+        }
+        .info-bar .turn-stone.black { background: radial-gradient(circle at 35% 35%, #555, #111); }
+        .info-bar .turn-stone.white { background: radial-gradient(circle at 35% 35%, #fff, #ccc); }
+        .info-bar .room-display {
+            background: rgba(43,26,14,0.12);
+            padding: 4px 14px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .info-bar .room-display .room-id {
+            font-weight: 700;
+            color: #1a0e06;
+            background: rgba(255,215,150,0.3);
+            padding: 0 8px;
+            border-radius: 12px;
+            font-size: 15px;
+        }
+        .info-bar .room-display .copy-btn {
+            background: none; border: none;
+            cursor: pointer; font-size: 16px;
+            padding: 0 4px; border-radius: 4px;
+            transition: background 0.2s;
+            line-height: 1;
+        }
+        .info-bar .room-display .copy-btn:hover { background: rgba(0,0,0,0.1); }
+        .board-wrapper {
+            position: relative;
+            background: #deba7a;
+            border-radius: 16px;
+            box-shadow: 0 0 0 4px #b8894e, 0 12px 28px rgba(0,0,0,0.6);
+            padding: 6px;
+            touch-action: none;
+        }
+        #boardCanvas {
+            display: block;
+            width: 100%; height: auto;
+            aspect-ratio: 1/1;
+            background: #deba7a;
+            border-radius: 12px;
+            cursor: pointer;
+            touch-action: none;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+            align-items: center;
+            justify-content: center;
+        }
+        .controls .input-group {
+            display: flex;
+            gap: 6px;
+            flex: 1 1 300px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .controls input[type="text"] {
+            flex: 1;
+            padding: 8px 14px;
+            border: 2px solid #b8894e;
+            border-radius: 30px;
+            font-size: 15px;
+            background: #f7ecd6;
+            color: #2b1a0e;
+            outline: none;
+            transition: border 0.2s;
+            min-width: 80px;
+        }
+        .controls input[type="text"]:focus { border-color: #6d4c2a; }
+        .controls input[type="text"]::placeholder { color: #8a7a64; }
+        .btn {
+            padding: 8px 22px;
+            border: none;
+            border-radius: 30px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            background: #2b1a0e;
+            color: #f0d6b0;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
+        .btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+        .btn-success { background: #2e7d32; color: #fff; }
+        .btn-success:hover:not(:disabled) { background: #3a9b3f; }
+        .btn-danger { background: #a52a2a; color: #fff; }
+        .btn-danger:hover:not(:disabled) { background: #c0392b; }
+        .btn-secondary { background: #6d5a44; color: #f0e0cc; }
+        .btn-secondary:hover:not(:disabled) { background: #8a735a; }
+        .btn-primary { background: #5d3a1e; color: #f5e6d0; }
+        .btn-primary:hover:not(:disabled) { background: #7a4f2e; }
+        .btn-warning { background: #b8860b; color: #fff; }
+        .btn-warning:hover:not(:disabled) { background: #d4a017; }
+        .game-over-overlay {
+            position: absolute;
+            inset: 0;
+            border-radius: 12px;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(3px);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-size: 28px;
+            font-weight: 700;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .game-over-overlay.show { display: flex; pointer-events: auto; }
+        .game-over-overlay .winner-text {
+            background: rgba(0,0,0,0.6);
+            padding: 12px 32px;
+            border-radius: 60px;
+            border: 2px solid rgba(255,215,0,0.5);
+            font-size: 26px;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+        }
+        .game-over-overlay .winner-text .stone-icon {
+            display: inline-block;
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            vertical-align: middle;
+            margin: 0 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .game-over-overlay .winner-text .stone-icon.black { background: radial-gradient(circle at 35% 35%, #666, #111); }
+        .game-over-overlay .winner-text .stone-icon.white { background: radial-gradient(circle at 35% 35%, #fff, #bbb); }
+        .game-over-overlay .sub-text { font-size: 16px; font-weight: 400; opacity: 0.8; margin-top: 8px; }
+        .log-area {
+            background: rgba(0,0,0,0.2);
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 12px;
+            color: #2b1a0e;
+            margin-top: 6px;
+            text-align: center;
+            width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .flex-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .warning-box {
+            background: rgba(255,0,0,0.1);
+            border: 1px solid #ff6b6b;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 12px;
+            color: #2b1a0e;
+            margin-top: 6px;
+            text-align: center;
+            width: 100%;
+        }
+        @media (max-width: 560px) {
+            .container { padding: 16px; border-radius: 28px; }
+            .title { font-size: 20px; }
+            .status-badge { font-size: 12px; padding: 4px 12px; }
+            .info-bar { font-size: 14px; flex-direction: column; align-items: stretch; gap: 4px; }
+            .info-bar .turn-indicator { justify-content: center; }
+            .info-bar .room-display { justify-content: center; }
+            .controls { flex-direction: column; align-items: stretch; }
+            .controls .input-group { flex: 1 1 auto; justify-content: center; }
+            .btn { justify-content: center; padding: 10px 16px; }
+        }
+        @media (max-width: 400px) {
+            .container { padding: 10px; border-radius: 20px; }
+            .title { font-size: 17px; }
+            .status-badge { font-size: 11px; padding: 3px 10px; }
+            .info-bar { font-size: 12px; }
+            .btn { font-size: 13px; padding: 8px 12px; }
+            .controls input[type="text"] { font-size: 13px; padding: 6px 10px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="title">♟ 五子棋</div>
+        <div class="status-badge" id="statusBadge">
+            <span class="dot offline" id="statusDot"></span>
+            <span id="statusText">未连接</span>
+        </div>
+    </div>
+
+    <div class="info-bar">
+        <div class="turn-indicator" id="turnIndicator">
+            <span>轮到</span>
+            <span class="turn-stone black" id="turnStone"></span>
+            <span id="turnLabel">黑棋</span>
+        </div>
+        <div class="room-display" id="roomDisplay">
+            🏠 我的ID: <span class="room-id" id="roomName">-</span>
+            <button class="copy-btn" id="copyBtn" title="复制我的ID">📋</button>
+        </div>
+    </div>
+
+    <div class="board-wrapper">
+        <canvas id="boardCanvas"></canvas>
+        <div class="game-over-overlay" id="gameOverOverlay">
+            <div class="winner-text" id="winnerText">
+                <span class="stone-icon black" id="winnerStone"></span>
+                <span id="winnerLabel">黑棋</span> 获胜！
+            </div>
+            <div class="sub-text" id="gameOverSub">点击「重新开始」再来一局</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="input-group" id="onlineGroup">
+            <input type="text" id="roomInput" placeholder="输入对方的ID" maxlength="50" />
+            <button class="btn btn-primary" id="hostBtn">🎯 成为主机</button>
+            <button class="btn btn-success" id="connectBtn">🔗 连接</button>
+            <button class="btn btn-warning" id="diagnosticBtn">🔍 诊断</button>
+        </div>
+        <div class="flex-row" style="width:100%; justify-content:center; gap:10px;">
+            <button class="btn btn-secondary" id="restartBtn">🔄 重新开始</button>
+            <button class="btn btn-danger" id="leaveBtn">🚪 断开</button>
+        </div>
+        <div class="log-area" id="logArea">💡 初始化中...</div>
+        <div class="warning-box" id="warningBox" style="display:none;">
+            ⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 访问。
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+    (function() {
+        'use strict';
+
+        // ---------- 检测协议 ----------
+        if (window.location.protocol === 'file:') {
+            document.getElementById('warningBox').style.display = 'block';
+            alert('⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！\n请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 或 https:// 访问。');
+        }
+
+        // DOM 引用
+        const canvas = document.getElementById('boardCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const turnStone = document.getElementById('turnStone');
+        const turnLabel = document.getElementById('turnLabel');
+        const roomName = document.getElementById('roomName');
+        const roomInput = document.getElementById('roomInput');
+        const hostBtn = document.getElementById('hostBtn');
+        const connectBtn = document.getElementById('connectBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const leaveBtn = document.getElementById('leaveBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const diagnosticBtn = document.getElementById('diagnosticBtn');
+        const gameOverOverlay = document.getElementById('gameOverOverlay');
+        const winnerStone = document.getElementById('winnerStone');
+        const winnerLabel = document.getElementById('winnerLabel');
+        const gameOverSub = document.getElementById('gameOverSub');
+        const logArea = document.getElementById('logArea');
+        const warningBox = document.getElementById('warningBox');
+
+        // 常量
+        const BOARD_SIZE = 15;
+        const EMPTY = 0, BLACK = 1, WHITE = 2;
+
+        // 游戏状态
+        let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
+        let currentPlayer = BLACK;
+        let myColor = BLACK;
+        let gameOver = false;
+        let moveHistory = [];
+        let isMyTurn = true;
+
+        // PeerJS 相关
+        let peer = null;
+        let conn = null;
+        let peerId = null;
+        let isHost = false;
+        let connected = false;
+        let connecting = false;
+
+        // 画布尺寸
+        let canvasSize = 0, cellSize = 0, padding = 0, stoneRadius = 0;
+
+        // 日志
+        function log(msg) {
+            logArea.textContent = msg;
+            console.log(msg);
+        }
+
+        // 工具
+        function getOpponent(color) { return color === BLACK ? WHITE : BLACK; }
+        function colorToStoneClass(c) { return c === BLACK ? 'black' : 'white'; }
+
+        // ---------- 棋盘绘制 ----------
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            const size = rect.width - 12;
+            canvas.width = size * (window.devicePixelRatio || 1);
+            canvas.height = size * (window.devicePixelRatio || 1);
+            canvas.style.width = size + 'px';
+            canvas.style.height = size + 'px';
+            canvasSize = size;
+            const dpr = window.devicePixelRatio || 1;
+            ctx.scale(dpr, dpr);
+            padding = canvasSize * 0.045;
+            cellSize = (canvasSize - padding * 2) / (BOARD_SIZE - 1);
+            stoneRadius = cellSize * 0.43;
+            drawBoard();
+        }
+
+        function drawBoard() {
+            const w = canvasSize, h = canvasSize;
+            ctx.clearRect(0, 0, w, h);
+            const grad = ctx.createRadialGradient(w*0.3, h*0.3, 0, w*0.5, h*0.5, w*0.7);
+            grad.addColorStop(0, '#eac88a');
+            grad.addColorStop(1, '#c89a5e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = '#4d321a';
+            ctx.lineWidth = 1.2;
+            for (let i=0; i<BOARD_SIZE; i++) {
+                const x = padding + i*cellSize, y = padding + i*cellSize;
+                ctx.beginPath(); ctx.moveTo(padding, y); ctx.lineTo(w-padding, y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(x, padding); ctx.lineTo(x, h-padding); ctx.stroke();
+            }
+            const starPositions = [[3,3],[3,11],[11,3],[11,11],[7,7]];
+            ctx.fillStyle = '#4d321a';
+            for (const [r,c] of starPositions) {
+                const x = padding + c*cellSize, y = padding + r*cellSize;
+                ctx.beginPath(); ctx.arc(x, y, cellSize*0.12, 0, Math.PI*2); ctx.fill();
+            }
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    if (board[r][c] !== EMPTY) drawStone(r, c, board[r][c]);
+                }
+            }
+            if (moveHistory.length > 0) {
+                const last = moveHistory[moveHistory.length-1];
+                const x = padding + last.col*cellSize, y = padding + last.row*cellSize;
+                ctx.save();
+                ctx.strokeStyle = '#ff2d55';
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = 'rgba(255,45,85,0.5)';
+                ctx.shadowBlur = 6;
+                ctx.beginPath(); ctx.arc(x, y, stoneRadius*0.25, 0, Math.PI*2); ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function drawStone(row, col, color) {
+            const x = padding + col*cellSize, y = padding + row*cellSize, r = stoneRadius;
+            ctx.save();
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            const grad = ctx.createRadialGradient(x-r*0.3, y-r*0.3, r*0.1, x, y, r);
+            if (color === BLACK) {
+                grad.addColorStop(0, '#666');
+                grad.addColorStop(0.5, '#222');
+                grad.addColorStop(1, '#0a0a0a');
+            } else {
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.6, '#f0f0f0');
+                grad.addColorStop(1, '#c8c8c8');
+            }
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+            ctx.fillStyle = grad; ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            const hl = ctx.createRadialGradient(x-r*0.25, y-r*0.3, r*0.05, x-r*0.15, y-r*0.2, r*0.35);
+            if (color === BLACK) {
+                hl.addColorStop(0, 'rgba(255,255,255,0.25)');
+                hl.addColorStop(1, 'rgba(255,255,255,0)');
+            } else {
+                hl.addColorStop(0, 'rgba(255,255,255,0.7)');
+                hl.addColorStop(1, 'rgba(255,255,255,0)');
+            }
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+            ctx.fillStyle = hl; ctx.fill();
+            ctx.restore();
+        }
+
+        function getGridPosition(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvasSize / rect.width, scaleY = canvasSize / rect.height;
+            const x = (clientX - rect.left) * scaleX, y = (clientY - rect.top) * scaleY;
+            let minDist = cellSize * 0.6;
+            let best = null;
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    const px = padding + c*cellSize, py = padding + r*cellSize;
+                    const d = Math.hypot(x-px, y-py);
+                    if (d < minDist) { minDist = d; best = {row:r, col:c}; }
+                }
+            }
+            return best;
+        }
+
+        function checkWin(row, col, color) {
+            if (board[row][col] !== color) return false;
+            const directions = [[1,0],[0,1],[1,1],[1,-1]];
+            for (const [dr, dc] of directions) {
+                let count = 1;
+                for (let step=1; step<5; step++) {
+                    const nr = row+dr*step, nc = col+dc*step;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    if (board[nr][nc] === color) count++; else break;
+                }
+                for (let step=1; step<5; step++) {
+                    const nr = row-dr*step, nc = col-dc*step;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    if (board[nr][nc] === color) count++; else break;
+                }
+                if (count >= 5) return true;
+            }
+            return false;
+        }
+        function checkBoardFull() {
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    if (board[r][c] === EMPTY) return false;
+                }
+            }
+            return true;
+        }
+
+        // ---------- 落子逻辑 ----------
+        function placeStone(row, col) {
+            if (gameOver) return false;
+            if (!isMyTurn) return false;
+            if (row<0||row>=BOARD_SIZE||col<0||col>=BOARD_SIZE) return false;
+            if (board[row][col] !== EMPTY) return false;
+
+            board[row][col] = currentPlayer;
+            moveHistory.push({row, col, color: currentPlayer});
+            drawBoard();
+
+            let win = checkWin(row, col, currentPlayer);
+            let full = checkBoardFull();
+
+            if (win || full) {
+                gameOver = true;
+                if (win) {
+                    showGameOver(currentPlayer, 'win');
+                    if (connected && conn) conn.send({ type: 'game_over', winner: currentPlayer });
+                } else {
+                    showGameOver(null, 'draw');
+                    if (connected && conn) conn.send({ type: 'game_over', winner: null });
+                }
+                return true;
+            }
+
+            if (connected && conn) {
+                conn.send({ type: 'move', row, col, color: currentPlayer });
+            }
+
+            currentPlayer = getOpponent(currentPlayer);
+            isMyTurn = false;
+            updateUI();
+            return true;
+        }
+
+        function opponentMove(row, col, color) {
+            if (gameOver) return;
+            if (row<0||row>=BOARD_SIZE||col<0||col>=BOARD_SIZE) return;
+            if (board[row][col] !== EMPTY) return;
+
+            board[row][col] = color;
+            moveHistory.push({row, col, color});
+            drawBoard();
+
+            if (checkWin(row, col, color)) {
+                gameOver = true;
+                showGameOver(color, 'win');
+                return;
+            } else if (checkBoardFull()) {
+                gameOver = true;
+                showGameOver(null, 'draw');
+                return;
+            }
+
+            currentPlayer = getOpponent(color);
+            isMyTurn = (myColor === currentPlayer);
+            updateUI();
+        }
+
+        function showGameOver(winner, reason) {
+            gameOver = true;
+            const overlay = gameOverOverlay;
+            overlay.classList.add('show');
+            if (winner === null) {
+                winnerLabel.textContent = '平局';
+                winnerStone.className = 'stone-icon';
+                gameOverSub.textContent = '棋盘已满，不分胜负';
+            } else {
+                const name = winner === BLACK ? '黑棋' : '白棋';
+                winnerLabel.textContent = name;
+                winnerStone.className = 'stone-icon ' + colorToStoneClass(winner);
+                gameOverSub.textContent = '五子连珠，恭喜获胜！';
+            }
+            updateUI();
+        }
+        function hideGameOver() { gameOverOverlay.classList.remove('show'); }
+
+        function resetGameLocally() {
+            board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
+            moveHistory = [];
+            gameOver = false;
+            hideGameOver();
+            currentPlayer = BLACK;
+            isMyTurn = (myColor === BLACK);
+            drawBoard();
+            updateUI();
+        }
+
+        // ---------- UI 更新 ----------
+        function updateUI() {
+            if (!gameOver) {
+                const name = currentPlayer === BLACK ? '黑棋' : '白棋';
+                turnLabel.textContent = name;
+                turnStone.className = 'turn-stone ' + colorToStoneClass(currentPlayer);
+                if (connected) {
+                    if (isMyTurn) turnLabel.textContent += ' (你)';
+                    else turnLabel.textContent += ' (对手)';
+                } else {
+                    turnLabel.textContent += ' (等待连接)';
+                }
+            }
+
+            if (peerId) {
+                roomName.textContent = peerId;
+                copyBtn.style.display = 'inline-block';
+            } else {
+                roomName.textContent = '-';
+                copyBtn.style.display = 'none';
+            }
+
+            if (connected && conn) {
+                statusDot.className = 'dot';
+                statusText.textContent = '已连接 ' + (isHost ? '(黑棋)' : '(白棋)');
+                log('✅ 已连接，' + (isHost ? '黑棋' : '白棋') + '先手');
+            } else if (connecting) {
+                statusDot.className = 'dot connecting';
+                statusText.textContent = '正在连接...';
+                log('⏳ 正在连接...');
+            } else if (peer && !connected) {
+                if (isHost) {
+                    statusDot.className = 'dot connecting';
+                    statusText.textContent = '等待对手连接...';
+                    log('⏳ 等待对手连接...');
+                } else {
+                    statusDot.className = 'dot offline';
+                    statusText.textContent = '未连接';
+                    log('💡 请输入对方ID并点击连接');
+                }
+            } else {
+                statusDot.className = 'dot offline';
+                statusText.textContent = '未连接';
+                log('💡 初始化中...');
+            }
+
+            const inRoom = connected && conn;
+            hostBtn.disabled = inRoom || connecting || (peer && isHost);
+            const inputVal = roomInput.value.trim();
+            const isValidId = inputVal.length >= 30;
+            connectBtn.disabled = inRoom || connecting || !peer || !peerId || !inputVal || !isValidId;
+            if (inputVal && !isValidId) {
+                log('⚠️ ID 似乎不完整，请确认复制了完整的ID（长度至少30字符）');
+            }
+            leaveBtn.disabled = !inRoom;
+            restartBtn.disabled = false;
+        }
+
+        // ---------- 复制ID ----------
+        function copyId() {
+            if (!peerId) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(peerId).then(() => {
+                    log('✅ 已复制完整ID: ' + peerId);
+                    copyBtn.textContent = '✅';
+                    setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+                }).catch(() => fallbackCopy(peerId));
+            } else {
+                fallbackCopy(peerId);
+            }
+        }
+        function fallbackCopy(text) {
+            const el = document.createElement('textarea');
+            el.value = text;
+            el.style.position = 'fixed'; el.style.left = '-9999px';
+            document.body.appendChild(el);
+            el.select();
+            try {
+                document.execCommand('copy');
+                log('✅ 已复制完整ID: ' + text);
+                copyBtn.textContent = '✅';
+                setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+            } catch (e) {
+                log('❌ 复制失败，请手动复制');
+            }
+            document.body.removeChild(el);
+        }
+
+        // ---------- PeerJS 初始化 ----------
+        function initPeer() {
+            if (peer) {
+                peer.destroy();
+                peer = null;
+                conn = null;
+                connected = false;
+                connecting = false;
+                isHost = false;
+                peerId = null;
+            }
+            // 配置多个 STUN/TURN 服务器以提高穿透率
+            const config = {
+                debug: 2,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun.ekiga.net' },
+                        { urls: 'stun:stun.stunprotocol.org' },
+                        // 公共 TURN 服务器（免费但可能不稳定）
+                        { urls: 'turn:turn.anyfirewall.com:443?transport=udp', username: 'webrtc', credential: 'webrtc' },
+                        { urls: 'turn:turn.anyfirewall.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' }
+                    ]
+                }
+            };
+            peer = new Peer(undefined, config);
+            peer.on('open', (id) => {
+                peerId = id;
+                log('✅ Peer 已开启，ID: ' + id);
+                if (isHost) {
+                    log('主机模式已激活，等待连接...');
+                }
+                updateUI();
+            });
+            peer.on('connection', (incoming) => {
+                if (conn) {
+                    incoming.close();
+                    log('已有连接，拒绝新连接');
+                    return;
+                }
+                // 自动接受连接
+                conn = incoming;
+                connected = true;
+                connecting = false;
+                isHost = true;
+                myColor = BLACK;
+                log('📞 自动接受连接，对方ID: ' + incoming.peer);
+                setupConnection(conn, false);
+                resetGameLocally();
+                updateUI();
+            });
+            peer.on('error', (err) => {
+                log('❌ Peer 错误: ' + err.message + ' (type: ' + err.type + ')');
+                if (err.type === 'unavailable-id') {
+                    log('该ID已被占用，请使用随机ID');
+                }
+                if (err.type === 'peer-error') {
+                    log('连接失败，请检查对方ID是否正确或对方是否在线');
+                }
+                if (err.message && err.message.toLowerCase().includes('ice')) {
+                    log('ICE 协商失败，可能是网络限制，建议使用同一网络或更换网络环境');
+                }
+            });
+            peer.on('disconnected', () => {
+                log('⚠️ Peer 断开，尝试重连...');
+                peer.reconnect();
+            });
+            peer.on('close', () => {
+                log('🔒 Peer 已关闭');
+                peer = null;
+                peerId = null;
+                connected = false;
+                conn = null;
+                isHost = false;
+                updateUI();
+            });
+        }
+
+        // ---------- 连接事件设置 ----------
+        function setupConnection(connection, isInitiator) {
+            // isInitiator: true 表示从机主动发起，false 表示主机被动接受
+            connection.on('open', () => {
+                log('🔗 连接 open 事件触发！');
+                connected = true;
+                connecting = false;
+                if (isInitiator) {
+                    // 从机发起，从机为白棋
+                    isHost = false;
+                    myColor = WHITE;
+                } else {
+                    // 主机接受，主机为黑棋
+                    isHost = true;
+                    myColor = BLACK;
+                }
+                if (isHost) {
+                    connection.send({ type: 'init', color: 'black' });
+                }
+                resetGameLocally();
+                updateUI();
+            });
+            connection.on('data', (data) => {
+                log('📨 收到数据: ' + JSON.stringify(data));
+                handleData(data);
+            });
+            connection.on('close', () => {
+                log('🔌 连接已关闭');
+                connected = false;
+                conn = null;
+                resetGameLocally();
+                updateUI();
+            });
+            connection.on('error', (err) => {
+                log('❌ 连接错误: ' + err.message);
+                if (err.message && err.message.toLowerCase().includes('ice')) {
+                    log('ICE 连接失败，可能是 NAT 穿透问题，建议双方切换到同一网络或使用公共 TURN');
+                }
+                connected = false;
+                conn = null;
+                updateUI();
+            });
+        }
+
+        // ---------- 数据处理 ----------
+        function handleData(data) {
+            switch (data.type) {
+                case 'init': {
+                    if (data.color === 'black') {
+                        myColor = WHITE;
+                        isHost = false;
+                    } else {
+                        myColor = BLACK;
+                        isHost = true;
+                    }
+                    resetGameLocally();
+                    updateUI();
+                    break;
+                }
+                case 'move': {
+                    opponentMove(data.row, data.col, data.color);
+                    break;
+                }
+                case 'game_over': {
+                    const winner = data.winner;
+                    if (winner !== null) showGameOver(winner, 'win');
+                    else showGameOver(null, 'draw');
+                    gameOver = true;
+                    updateUI();
+                    break;
+                }
+                case 'restart': {
+                    resetGameLocally();
+                    break;
+                }
+                default:
+                    log('未知消息类型: ' + data.type);
+            }
+        }
+
+        // ---------- 成为主机 ----------
+        function becomeHost() {
+            if (!peer) {
+                log('请先初始化 Peer');
+                return;
+            }
+            if (!peerId) {
+                log('等待 Peer 获取ID...');
+                return;
+            }
+            if (connected && conn) {
+                log('已有连接，不能切换');
+                return;
+            }
+            if (connecting) {
+                log('正在连接中，请稍候');
+                return;
+            }
+            isHost = true;
+            myColor = BLACK;
+            log('✅ 已切换为主机模式，等待对方连接');
+            updateUI();
+        }
+
+        // ---------- 主动连接（从机） ----------
+        function connectToPeer() {
+            const targetId = roomInput.value.trim();
+            if (!targetId) {
+                log('请输入对方ID');
+                return;
+            }
+            if (targetId.length < 30) {
+                log('⚠️ ID 长度不足，请确认复制了完整的ID');
+                return;
+            }
+            if (!peer) {
+                log('请先初始化 Peer');
+                return;
+            }
+            if (!peerId) {
+                log('等待 Peer 获取ID...');
+                return;
+            }
+            if (targetId === peerId) {
+                log('❌ 不能连接自己');
+                return;
+            }
+            if (connected && conn) {
+                log('已连接，请先断开');
+                return;
+            }
+            if (connecting) {
+                log('正在连接中，请稍候');
+                return;
+            }
+
+            connecting = true;
+            log('🔗 从机: 正在连接 ' + targetId + ' ...');
+            isHost = false;
+            myColor = WHITE;
+            updateUI();
+
+            try {
+                const newConn = peer.connect(targetId);
+                if (!newConn) {
+                    connecting = false;
+                    log('❌ 从机: 连接发起失败');
+                    updateUI();
+                    return;
+                }
+                conn = newConn;
+                setupConnection(conn, true);
+
+                // 超时检测 45秒
+                let timeout = setTimeout(() => {
+                    if (!connected) {
+                        connecting = false;
+                        log('⏰ 从机: 连接超时（45秒），ICE 协商可能失败');
+                        if (conn) {
+                            conn.close();
+                            conn = null;
+                        }
+                        updateUI();
+                    }
+                }, 45000);
+
+                conn.on('open', () => {
+                    clearTimeout(timeout);
+                    connecting = false;
+                    log('从机: open 事件触发');
+                });
+                conn.on('error', () => {
+                    clearTimeout(timeout);
+                    connecting = false;
+                    log('从机: error 事件触发');
+                });
+                updateUI();
+            } catch (e) {
+                connecting = false;
+                log('❌ 从机: 连接异常: ' + e.message);
+                updateUI();
+            }
+        }
+
+        // ---------- 断开 ----------
+        function disconnect() {
+            if (conn) {
+                conn.close();
+                conn = null;
+            }
+            connected = false;
+            connecting = false;
+            isHost = false;
+            myColor = BLACK;
+            resetGameLocally();
+            log('已断开连接');
+            updateUI();
+        }
+
+        // ---------- 重新开始 ----------
+        function restartGame() {
+            if (!connected || !conn) {
+                log('未连接');
+                return;
+            }
+            if (!gameOver) {
+                if (!confirm('确定要重新开始吗？')) return;
+            }
+            conn.send({ type: 'restart' });
+            resetGameLocally();
+            log('重新开始');
+        }
+
+        // ---------- 诊断 ----------
+        function runDiagnostic() {
+            let msg = '🔍 诊断信息：\n';
+            msg += '协议: ' + window.location.protocol + '\n';
+            msg += 'Peer 状态: ' + (peer ? '存在' : '无') + '\n';
+            msg += 'Peer ID: ' + (peerId || '未获取') + '\n';
+            msg += '连接状态: ' + (connected ? '已连接' : '未连接') + '\n';
+            msg += '主机模式: ' + (isHost ? '是' : '否') + '\n';
+            msg += '正在连接: ' + (connecting ? '是' : '否') + '\n';
+            msg += '输入框内容: ' + (roomInput.value || '空') + '\n';
+            msg += '输入长度: ' + roomInput.value.length + ' 字符\n';
+            msg += '浏览器: ' + navigator.userAgent;
+            alert(msg);
+            console.log(msg);
+        }
+
+        // ---------- 事件绑定 ----------
+        canvas.addEventListener('click', function(e) {
+            if (gameOver) return;
+            if (!isMyTurn) return;
+            const pos = getGridPosition(e.clientX, e.clientY);
+            if (!pos) return;
+            const {row, col} = pos;
+            if (board[row][col] !== EMPTY) return;
+            placeStone(row, col);
+        });
+        canvas.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            if (gameOver) return;
+            if (!isMyTurn) return;
+            const touch = e.touches[0];
+            const pos = getGridPosition(touch.clientX, touch.clientY);
+            if (!pos) return;
+            const {row, col} = pos;
+            if (board[row][col] !== EMPTY) return;
+            placeStone(row, col);
+        }, {passive: false});
+
+        hostBtn.addEventListener('click', becomeHost);
+        connectBtn.addEventListener('click', connectToPeer);
+        roomInput.addEventListener('input', function() {
+            this.value = this.value.trim();
+            updateUI();
+        });
+        roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connectBtn.click(); });
+        restartBtn.addEventListener('click', restartGame);
+        leaveBtn.addEventListener('click', disconnect);
+        copyBtn.addEventListener('click', copyId);
+        diagnosticBtn.addEventListener('click', runDiagnostic);
+
+        // 窗口自适应
+        let resizeTimer = null;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(resizeCanvas, 150);
+        });
+
+        // 初始化
+        function init() {
+            resizeCanvas();
+            initPeer();
+            updateUI();
+            log('💡 初始化完成，请选择成为主机或输入对方ID连接');
+            if (window.location.protocol === 'file:') {
+                log('⚠️ 检测到 file:// 协议，请部署到 Web 服务器后使用 http:// 访问！');
+                warningBox.style.display = 'block';
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        window.__game = { board, currentPlayer, myColor, gameOver, isMyTurn, resetGameLocally, placeStone };
+    })();
+</script>
+</body>
+</html>
