@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>五子棋 · 双端同步连接版</title>
+    <title>五子棋 · 互联网联机版</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -238,45 +238,29 @@
             white-space: nowrap;
             text-overflow: ellipsis;
         }
-        .flex-row {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .request-area {
-            background: rgba(43,26,14,0.15);
-            padding: 8px 12px;
+        .status-detail {
+            font-size: 12px;
+            color: #2b1a0e;
+            background: rgba(255,215,150,0.2);
+            padding: 4px 12px;
             border-radius: 30px;
-            margin-top: 8px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
+            margin-top: 4px;
+            text-align: center;
             width: 100%;
-            border: 2px solid #ffd700;
         }
-        .request-area.show {
-            display: flex;
-        }
-        .request-area .req-id {
-            font-weight: 700;
-            color: #1a0e06;
-            background: rgba(255,215,150,0.3);
-            padding: 0 8px;
-            border-radius: 12px;
-        }
-        .warning-box {
-            background: rgba(255,0,0,0.1);
-            border: 1px solid #ff6b6b;
-            padding: 6px 12px;
+        .help-box {
+            background: rgba(255,215,0,0.15);
+            border: 1px solid #b8860b;
+            padding: 8px 12px;
             border-radius: 30px;
             font-size: 12px;
             color: #2b1a0e;
             margin-top: 6px;
             text-align: center;
             width: 100%;
+            display: none;
         }
+        .help-box.show { display: block; }
         @media (max-width: 560px) {
             .container { padding: 16px; border-radius: 28px; }
             .title { font-size: 20px; }
@@ -287,7 +271,6 @@
             .controls { flex-direction: column; align-items: stretch; }
             .controls .input-group { flex: 1 1 auto; justify-content: center; }
             .btn { justify-content: center; padding: 10px 16px; }
-            .request-area { flex-wrap: wrap; }
         }
         @media (max-width: 400px) {
             .container { padding: 10px; border-radius: 20px; }
@@ -337,20 +320,20 @@
             <input type="text" id="roomInput" placeholder="输入对方的ID" maxlength="50" />
             <button class="btn btn-primary" id="hostBtn">🎯 成为主机</button>
             <button class="btn btn-success" id="connectBtn">🔗 连接</button>
-            <button class="btn btn-warning" id="diagnosticBtn">🔍 诊断</button>
+            <button class="btn btn-warning" id="helpBtn">❓ 帮助</button>
         </div>
         <div class="flex-row" style="width:100%; justify-content:center; gap:10px;">
             <button class="btn btn-secondary" id="restartBtn">🔄 重新开始</button>
             <button class="btn btn-danger" id="leaveBtn">🚪 断开</button>
         </div>
-        <div class="request-area" id="requestArea">
-            <span>📞 来自 <span class="req-id" id="reqIdDisplay">---</span> 的连接请求</span>
-            <button class="btn btn-success" id="acceptBtn">✅ 接受</button>
-            <button class="btn btn-danger" id="rejectBtn">❌ 拒绝</button>
-        </div>
+        <div class="status-detail" id="statusDetail">状态: 未连接</div>
         <div class="log-area" id="logArea">💡 初始化中...</div>
-        <div class="warning-box" id="warningBox" style="display:none;">
-            ⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 访问。
+        <div class="help-box" id="helpBox">
+            <strong>🔧 连接失败解决方案：</strong><br />
+            1️⃣ 确保双方连接同一 Wi-Fi 或手机热点（推荐）。<br />
+            2️⃣ 关闭 VPN 或代理软件。<br />
+            3️⃣ 尝试使用手机热点（4G/5G）让两台设备连接。<br />
+            4️⃣ 若仍失败，可尝试使用 <a href="https://tailscale.com" target="_blank">Tailscale</a> 虚拟组网。
         </div>
     </div>
 </div>
@@ -360,7 +343,7 @@
     (function() {
         'use strict';
 
-        // ---------- DOM 引用 ----------
+        // DOM 引用
         const canvas = document.getElementById('boardCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -375,23 +358,20 @@
         const restartBtn = document.getElementById('restartBtn');
         const leaveBtn = document.getElementById('leaveBtn');
         const copyBtn = document.getElementById('copyBtn');
-        const diagnosticBtn = document.getElementById('diagnosticBtn');
+        const helpBtn = document.getElementById('helpBtn');
         const gameOverOverlay = document.getElementById('gameOverOverlay');
         const winnerStone = document.getElementById('winnerStone');
         const winnerLabel = document.getElementById('winnerLabel');
         const gameOverSub = document.getElementById('gameOverSub');
         const logArea = document.getElementById('logArea');
-        const requestArea = document.getElementById('requestArea');
-        const reqIdDisplay = document.getElementById('reqIdDisplay');
-        const acceptBtn = document.getElementById('acceptBtn');
-        const rejectBtn = document.getElementById('rejectBtn');
-        const warningBox = document.getElementById('warningBox');
+        const statusDetail = document.getElementById('statusDetail');
+        const helpBox = document.getElementById('helpBox');
 
-        // ---------- 常量 ----------
+        // 常量
         const BOARD_SIZE = 15;
         const EMPTY = 0, BLACK = 1, WHITE = 2;
 
-        // ---------- 游戏状态 ----------
+        // 游戏状态
         let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
         let currentPlayer = BLACK;
         let myColor = BLACK;
@@ -399,25 +379,28 @@
         let moveHistory = [];
         let isMyTurn = true;
 
-        // ---------- PeerJS 相关 ----------
+        // PeerJS 相关
         let peer = null;
         let conn = null;
         let peerId = null;
         let isHost = false;
         let connected = false;
         let connecting = false;
-        let pendingConnection = null;
 
         // 画布尺寸
         let canvasSize = 0, cellSize = 0, padding = 0, stoneRadius = 0;
 
-        // ---------- 日志 ----------
+        // 日志
         function log(msg) {
             logArea.textContent = msg;
             console.log(msg);
         }
 
-        // ---------- 工具 ----------
+        function setStatusDetail(msg) {
+            statusDetail.textContent = '状态: ' + msg;
+        }
+
+        // 工具
         function getOpponent(color) { return color === BLACK ? WHITE : BLACK; }
         function colorToStoneClass(c) { return c === BLACK ? 'black' : 'white'; }
 
@@ -513,7 +496,6 @@
             ctx.restore();
         }
 
-        // ---------- 坐标转换 ----------
         function getGridPosition(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvasSize / rect.width, scaleY = canvasSize / rect.height;
@@ -530,7 +512,6 @@
             return best;
         }
 
-        // ---------- 胜负判定 ----------
         function checkWin(row, col, color) {
             if (board[row][col] !== color) return false;
             const directions = [[1,0],[0,1],[1,1],[1,-1]];
@@ -673,24 +654,29 @@
             if (connected && conn) {
                 statusDot.className = 'dot';
                 statusText.textContent = '已连接 ' + (isHost ? '(黑棋)' : '(白棋)');
+                setStatusDetail('已连接，数据传输正常');
                 log('✅ 已连接，' + (isHost ? '黑棋' : '白棋') + '先手');
             } else if (connecting) {
                 statusDot.className = 'dot connecting';
                 statusText.textContent = '正在连接...';
+                setStatusDetail('正在协商 ICE... (可能需要 10-30 秒)');
                 log('⏳ 正在连接...');
             } else if (peer && !connected) {
                 if (isHost) {
                     statusDot.className = 'dot connecting';
                     statusText.textContent = '等待对手连接...';
+                    setStatusDetail('等待对手连接，请复制ID给好友');
                     log('⏳ 等待对手连接...');
                 } else {
                     statusDot.className = 'dot offline';
                     statusText.textContent = '未连接';
+                    setStatusDetail('请输入对方ID并点击连接');
                     log('💡 请输入对方ID并点击连接');
                 }
             } else {
                 statusDot.className = 'dot offline';
                 statusText.textContent = '未连接';
+                setStatusDetail('初始化中...');
                 log('💡 初始化中...');
             }
 
@@ -704,16 +690,6 @@
             }
             leaveBtn.disabled = !inRoom;
             restartBtn.disabled = false;
-
-            // 请求区域
-            if (pendingConnection && !connected) {
-                requestArea.classList.add('show');
-                reqIdDisplay.textContent = pendingConnection.peer;
-                acceptBtn.disabled = false;
-                rejectBtn.disabled = false;
-            } else {
-                requestArea.classList.remove('show');
-            }
         }
 
         // ---------- 复制ID ----------
@@ -756,9 +732,8 @@
                 connecting = false;
                 isHost = false;
                 peerId = null;
-                pendingConnection = null;
-                requestArea.classList.remove('show');
             }
+            // 配置多个 STUN/TURN 服务器
             const config = {
                 debug: 2,
                 config: {
@@ -767,6 +742,7 @@
                         { urls: 'stun:stun1.l.google.com:19302' },
                         { urls: 'stun:stun.ekiga.net' },
                         { urls: 'stun:stun.stunprotocol.org' },
+                        // 公共 TURN（可能不稳定）
                         { urls: 'turn:turn.anyfirewall.com:443?transport=udp', username: 'webrtc', credential: 'webrtc' },
                         { urls: 'turn:turn.anyfirewall.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' }
                     ]
@@ -787,13 +763,15 @@
                     log('已有连接，拒绝新连接');
                     return;
                 }
-                if (pendingConnection) {
-                    incoming.close();
-                    log('已有待处理请求，拒绝新请求');
-                    return;
-                }
-                pendingConnection = incoming;
-                log('📞 收到连接请求，对方ID: ' + incoming.peer);
+                // 自动接受连接
+                conn = incoming;
+                connected = true;
+                connecting = false;
+                isHost = true;
+                myColor = BLACK;
+                log('📞 自动接受连接，对方ID: ' + incoming.peer);
+                setupConnection(conn, false);
+                resetGameLocally();
                 updateUI();
             });
             peer.on('error', (err) => {
@@ -805,7 +783,9 @@
                     log('连接失败，请检查对方ID是否正确或对方是否在线');
                 }
                 if (err.message && err.message.toLowerCase().includes('ice')) {
-                    log('ICE 协商失败，可能是网络限制，建议使用同一网络或更换网络环境');
+                    log('ICE 协商失败，可能是网络限制');
+                    setStatusDetail('ICE 失败，建议使用同一网络');
+                    helpBox.classList.add('show');
                 }
             });
             peer.on('disconnected', () => {
@@ -819,21 +799,12 @@
                 connected = false;
                 conn = null;
                 isHost = false;
-                pendingConnection = null;
-                requestArea.classList.remove('show');
                 updateUI();
             });
         }
 
         // ---------- 连接事件设置 ----------
         function setupConnection(connection, isInitiator) {
-            // 监听 ICE 连接状态变化（调试）
-            if (connection.peerConnection) {
-                // 部分版本可能不支持直接访问，我们通过日志输出
-                log('🔧 正在设置 ICE 监听...');
-                // 也可以尝试监听 'iceStateChanged' 事件（非标准）
-            }
-
             connection.on('open', () => {
                 log('🔗 连接 open 事件触发！');
                 connected = true;
@@ -848,10 +819,10 @@
                 if (isHost) {
                     connection.send({ type: 'init', color: 'black' });
                 }
-                // 发送 ready 消息告知对方连接已就绪
-                connection.send({ type: 'ready' });
                 resetGameLocally();
                 updateUI();
+                helpBox.classList.remove('show');
+                setStatusDetail('✅ 连接建立成功');
             });
             connection.on('data', (data) => {
                 log('📨 收到数据: ' + JSON.stringify(data));
@@ -867,23 +838,13 @@
             connection.on('error', (err) => {
                 log('❌ 连接错误: ' + err.message);
                 if (err.message && err.message.toLowerCase().includes('ice')) {
-                    log('ICE 连接失败，可能是 NAT 穿透问题，建议双方切换到同一网络或使用公共 TURN');
+                    setStatusDetail('ICE 连接失败，请使用同一网络');
+                    helpBox.classList.add('show');
                 }
                 connected = false;
                 conn = null;
                 updateUI();
             });
-            // 额外监听 connection 的 open 属性（非标准但有效）
-            if (!connection.open) {
-                let checkInterval = setInterval(() => {
-                    if (connection.open) {
-                        clearInterval(checkInterval);
-                        log('🔔 检测到 connection.open 变为 true');
-                        // 手动触发 open 逻辑（但 open 事件已触发，避免重复）
-                    }
-                }, 500);
-                setTimeout(() => clearInterval(checkInterval), 10000);
-            }
         }
 
         // ---------- 数据处理 ----------
@@ -917,56 +878,9 @@
                     resetGameLocally();
                     break;
                 }
-                case 'ready': {
-                    // 收到对方发来的 ready 消息，表示对方已成功建立连接
-                    log('✅ 收到对方 ready 消息，连接已完全建立');
-                    // 如果此时 connected 为 true 但 conn 存在，则无需额外操作
-                    // 但可确保双方都处于就绪状态
-                    break;
-                }
                 default:
                     log('未知消息类型: ' + data.type);
             }
-        }
-
-        // ---------- 接受连接 ----------
-        function acceptConnection() {
-            if (!pendingConnection) return;
-            log('✅ 主机接受连接请求');
-            conn = pendingConnection;
-            pendingConnection = null;
-            requestArea.classList.remove('show');
-            // 绑定事件（作为主机，isInitiator = false）
-            setupConnection(conn, false);
-            connecting = true;
-            updateUI();
-            // 超时检测
-            let timeout = setTimeout(() => {
-                if (!connected) {
-                    log('⏰ 连接超时（45秒），ICE 协商可能失败');
-                    if (conn) {
-                        conn.close();
-                        conn = null;
-                    }
-                    connecting = false;
-                    updateUI();
-                }
-            }, 45000);
-            conn.on('open', () => {
-                clearTimeout(timeout);
-            });
-            conn.on('error', () => {
-                clearTimeout(timeout);
-            });
-        }
-
-        function rejectConnection() {
-            if (!pendingConnection) return;
-            log('❌ 拒绝连接请求');
-            pendingConnection.close();
-            pendingConnection = null;
-            requestArea.classList.remove('show');
-            updateUI();
         }
 
         // ---------- 成为主机 ----------
@@ -987,14 +901,10 @@
                 log('正在连接中，请稍候');
                 return;
             }
-            if (pendingConnection) {
-                pendingConnection.close();
-                pendingConnection = null;
-                requestArea.classList.remove('show');
-            }
             isHost = true;
             myColor = BLACK;
             log('✅ 已切换为主机模式，等待对方连接');
+            helpBox.classList.remove('show');
             updateUI();
         }
 
@@ -1032,25 +942,31 @@
 
             connecting = true;
             log('🔗 从机: 正在连接 ' + targetId + ' ...');
+            setStatusDetail('正在发起连接...');
             isHost = false;
             myColor = WHITE;
             updateUI();
+            helpBox.classList.remove('show');
 
             try {
                 const newConn = peer.connect(targetId);
                 if (!newConn) {
                     connecting = false;
                     log('❌ 从机: 连接发起失败');
+                    setStatusDetail('连接发起失败，请检查ID');
                     updateUI();
                     return;
                 }
                 conn = newConn;
                 setupConnection(conn, true);
 
+                // 超时检测 45秒
                 let timeout = setTimeout(() => {
                     if (!connected) {
                         connecting = false;
                         log('⏰ 从机: 连接超时（45秒），ICE 协商可能失败');
+                        setStatusDetail('ICE 协商超时，请尝试同一网络');
+                        helpBox.classList.add('show');
                         if (conn) {
                             conn.close();
                             conn = null;
@@ -1073,6 +989,7 @@
             } catch (e) {
                 connecting = false;
                 log('❌ 从机: 连接异常: ' + e.message);
+                setStatusDetail('连接异常: ' + e.message);
                 updateUI();
             }
         }
@@ -1087,13 +1004,10 @@
             connecting = false;
             isHost = false;
             myColor = BLACK;
-            if (pendingConnection) {
-                pendingConnection.close();
-                pendingConnection = null;
-                requestArea.classList.remove('show');
-            }
             resetGameLocally();
             log('已断开连接');
+            setStatusDetail('已断开');
+            helpBox.classList.remove('show');
             updateUI();
         }
 
@@ -1111,21 +1025,9 @@
             log('重新开始');
         }
 
-        // ---------- 诊断 ----------
-        function runDiagnostic() {
-            let msg = '🔍 诊断信息：\n';
-            msg += '协议: ' + window.location.protocol + '\n';
-            msg += 'Peer 状态: ' + (peer ? '存在' : '无') + '\n';
-            msg += 'Peer ID: ' + (peerId || '未获取') + '\n';
-            msg += '连接状态: ' + (connected ? '已连接' : '未连接') + '\n';
-            msg += '主机模式: ' + (isHost ? '是' : '否') + '\n';
-            msg += '正在连接: ' + (connecting ? '是' : '否') + '\n';
-            msg += '待处理请求: ' + (pendingConnection ? '有 (ID: ' + pendingConnection.peer + ')' : '无') + '\n';
-            msg += '输入框内容: ' + (roomInput.value || '空') + '\n';
-            msg += '输入长度: ' + roomInput.value.length + ' 字符\n';
-            msg += '浏览器: ' + navigator.userAgent;
-            alert(msg);
-            console.log(msg);
+        // ---------- 帮助 ----------
+        function toggleHelp() {
+            helpBox.classList.toggle('show');
         }
 
         // ---------- 事件绑定 ----------
@@ -1160,26 +1062,26 @@
         restartBtn.addEventListener('click', restartGame);
         leaveBtn.addEventListener('click', disconnect);
         copyBtn.addEventListener('click', copyId);
-        diagnosticBtn.addEventListener('click', runDiagnostic);
-        acceptBtn.addEventListener('click', acceptConnection);
-        rejectBtn.addEventListener('click', rejectConnection);
+        helpBtn.addEventListener('click', toggleHelp);
 
-        // ---------- 窗口自适应 ----------
+        // 窗口自适应
         let resizeTimer = null;
         window.addEventListener('resize', function() {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(resizeCanvas, 150);
         });
 
-        // ---------- 初始化 ----------
+        // 初始化
         function init() {
             resizeCanvas();
             initPeer();
             updateUI();
             log('💡 初始化完成，请选择成为主机或输入对方ID连接');
+            // 检测协议
             if (window.location.protocol === 'file:') {
                 log('⚠️ 检测到 file:// 协议，请部署到 Web 服务器后使用 http:// 访问！');
-                warningBox.style.display = 'block';
+                helpBox.classList.add('show');
+                helpBox.innerHTML = '<strong>⚠️ 检测到 file:// 协议</strong><br />请将页面部署到 GitHub Pages 等 Web 服务器，通过 http:// 或 https:// 访问。';
             }
         }
 
