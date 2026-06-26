@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>五子棋 · 极简P2P</title>
+    <title>五子棋 · 纯本地联机 (BroadcastChannel)</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -236,16 +236,14 @@
             white-space: nowrap;
             text-overflow: ellipsis;
         }
-        .tip-box {
-            background: rgba(255,215,0,0.15);
-            border: 1px solid #b8860b;
-            padding: 8px 12px;
-            border-radius: 30px;
-            font-size: 12px;
-            color: #2b1a0e;
+        .role-selector {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
             margin-top: 6px;
-            text-align: center;
-            width: 100%;
+        }
+        .role-selector .btn {
+            flex: 1;
         }
         @media (max-width: 560px) {
             .container { padding: 16px; border-radius: 28px; }
@@ -285,8 +283,7 @@
             <span id="turnLabel">黑棋</span>
         </div>
         <div class="room-display" id="roomDisplay">
-            🏠 我的ID: <span class="room-id" id="roomName">-</span>
-            <button class="copy-btn" id="copyBtn" title="复制我的ID">📋</button>
+            🏠 角色: <span class="room-id" id="roomName">-</span>
         </div>
     </div>
 
@@ -302,28 +299,25 @@
     </div>
 
     <div class="controls">
-        <div class="input-group" id="onlineGroup">
-            <input type="text" id="roomInput" placeholder="输入对方的ID" maxlength="50" />
-            <button class="btn btn-primary" id="hostBtn">🎯 成为主机</button>
-            <button class="btn btn-success" id="connectBtn">🔗 连接</button>
+        <div class="role-selector">
+            <button class="btn btn-primary" id="hostBtn">🎯 成为主机 (黑棋)</button>
+            <button class="btn btn-success" id="joinBtn">🔗 成为从机 (白棋)</button>
         </div>
         <div class="flex-row" style="width:100%; justify-content:center; gap:10px;">
             <button class="btn btn-secondary" id="restartBtn">🔄 重新开始</button>
             <button class="btn btn-danger" id="leaveBtn">🚪 断开</button>
         </div>
-        <div class="log-area" id="logArea">💡 初始化中...</div>
-        <div class="tip-box" id="tipBox">
-            💡 推荐使用同一 Wi-Fi 或手机热点。若跨网络，请安装 <a href="https://tailscale.com" target="_blank">Tailscale</a> 后使用。
-        </div>
+        <div class="log-area" id="logArea">💡 请选择角色</div>
     </div>
 </div>
 
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<!-- 使用 simple-peer 库 -->
+<script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
 <script>
     (function() {
         'use strict';
 
-        // DOM 引用
+        // ---------- DOM 引用 ----------
         const canvas = document.getElementById('boardCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -332,24 +326,21 @@
         const turnStone = document.getElementById('turnStone');
         const turnLabel = document.getElementById('turnLabel');
         const roomName = document.getElementById('roomName');
-        const roomInput = document.getElementById('roomInput');
         const hostBtn = document.getElementById('hostBtn');
-        const connectBtn = document.getElementById('connectBtn');
+        const joinBtn = document.getElementById('joinBtn');
         const restartBtn = document.getElementById('restartBtn');
         const leaveBtn = document.getElementById('leaveBtn');
-        const copyBtn = document.getElementById('copyBtn');
         const gameOverOverlay = document.getElementById('gameOverOverlay');
         const winnerStone = document.getElementById('winnerStone');
         const winnerLabel = document.getElementById('winnerLabel');
         const gameOverSub = document.getElementById('gameOverSub');
         const logArea = document.getElementById('logArea');
-        const tipBox = document.getElementById('tipBox');
 
-        // 常量
+        // ---------- 游戏常量 ----------
         const BOARD_SIZE = 15;
         const EMPTY = 0, BLACK = 1, WHITE = 2;
 
-        // 游戏状态
+        // ---------- 游戏状态 ----------
         let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
         let currentPlayer = BLACK;
         let myColor = BLACK;
@@ -357,24 +348,24 @@
         let moveHistory = [];
         let isMyTurn = true;
 
-        // PeerJS 相关
-        let peer = null;
-        let conn = null;
-        let peerId = null;
-        let isHost = false;
+        // ---------- WebRTC 相关 ----------
+        let peer = null;         // simple-peer 实例
+        let isInitiator = false; // true 表示主动发起（主机），false 表示被动接受（从机）
         let connected = false;
-        let connecting = false;
 
-        // 画布尺寸
+        // ---------- BroadcastChannel ----------
+        const channel = new BroadcastChannel('goban_channel');
+
+        // ---------- 画布尺寸 ----------
         let canvasSize = 0, cellSize = 0, padding = 0, stoneRadius = 0;
 
-        // 日志
+        // ---------- 日志 ----------
         function log(msg) {
             logArea.textContent = msg;
             console.log(msg);
         }
 
-        // 工具
+        // ---------- 工具 ----------
         function getOpponent(color) { return color === BLACK ? WHITE : BLACK; }
         function colorToStoneClass(c) { return c === BLACK ? 'black' : 'white'; }
 
@@ -532,16 +523,16 @@
                 gameOver = true;
                 if (win) {
                     showGameOver(currentPlayer, 'win');
-                    if (connected && conn) conn.send({ type: 'game_over', winner: currentPlayer });
+                    if (connected && peer) peer.send(JSON.stringify({ type: 'game_over', winner: currentPlayer }));
                 } else {
                     showGameOver(null, 'draw');
-                    if (connected && conn) conn.send({ type: 'game_over', winner: null });
+                    if (connected && peer) peer.send(JSON.stringify({ type: 'game_over', winner: null }));
                 }
                 return true;
             }
 
-            if (connected && conn) {
-                conn.send({ type: 'move', row, col, color: currentPlayer });
+            if (connected && peer) {
+                peer.send(JSON.stringify({ type: 'move', row, col, color: currentPlayer }));
             }
 
             currentPlayer = getOpponent(currentPlayer);
@@ -617,209 +608,107 @@
                 }
             }
 
-            if (peerId) {
-                roomName.textContent = peerId;
-                copyBtn.style.display = 'inline-block';
-            } else {
-                roomName.textContent = '-';
-                copyBtn.style.display = 'none';
-            }
-
-            if (connected && conn) {
+            if (connected) {
+                roomName.textContent = isInitiator ? '主机 (黑棋)' : '从机 (白棋)';
                 statusDot.className = 'dot';
-                statusText.textContent = '已连接 ' + (isHost ? '(黑棋)' : '(白棋)');
-                log('✅ 已连接，' + (isHost ? '黑棋' : '白棋') + '先手');
-            } else if (connecting) {
-                statusDot.className = 'dot connecting';
-                statusText.textContent = '正在连接...';
-                log('⏳ 正在连接...');
-            } else if (peer && !connected) {
-                if (isHost) {
-                    statusDot.className = 'dot connecting';
-                    statusText.textContent = '等待对手连接...';
-                    log('⏳ 等待对手连接...');
-                } else {
-                    statusDot.className = 'dot offline';
-                    statusText.textContent = '未连接';
-                    log('💡 请输入对方ID并点击连接');
-                }
+                statusText.textContent = '已连接';
+                log('✅ 已连接');
             } else {
-                statusDot.className = 'dot offline';
-                statusText.textContent = '未连接';
-                log('💡 初始化中...');
+                roomName.textContent = isInitiator ? '主机 (等待连接...)' : '从机 (等待连接...)';
+                statusDot.className = 'dot connecting';
+                statusText.textContent = '连接中...';
+                log('⏳ 等待连接...');
             }
 
-            const inRoom = connected && conn;
-            hostBtn.disabled = inRoom || connecting || (peer && isHost);
-            const inputVal = roomInput.value.trim();
-            const isValidId = inputVal.length >= 30;
-            connectBtn.disabled = inRoom || connecting || !peer || !peerId || !inputVal || !isValidId;
-            if (inputVal && !isValidId) {
-                log('⚠️ ID 似乎不完整，请确认复制了完整的ID（长度至少30字符）');
-            }
+            const inRoom = connected;
+            hostBtn.disabled = inRoom || (peer && isInitiator);
+            joinBtn.disabled = inRoom || (peer && !isInitiator);
             leaveBtn.disabled = !inRoom;
             restartBtn.disabled = false;
         }
 
-        // ---------- 复制ID ----------
-        function copyId() {
-            if (!peerId) return;
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(peerId).then(() => {
-                    log('✅ 已复制完整ID: ' + peerId);
-                    copyBtn.textContent = '✅';
-                    setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
-                }).catch(() => fallbackCopy(peerId));
-            } else {
-                fallbackCopy(peerId);
-            }
-        }
-        function fallbackCopy(text) {
-            const el = document.createElement('textarea');
-            el.value = text;
-            el.style.position = 'fixed'; el.style.left = '-9999px';
-            document.body.appendChild(el);
-            el.select();
-            try {
-                document.execCommand('copy');
-                log('✅ 已复制完整ID: ' + text);
-                copyBtn.textContent = '✅';
-                setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
-            } catch (e) {
-                log('❌ 复制失败，请手动复制');
-            }
-            document.body.removeChild(el);
+        // ---------- 信令通过 BroadcastChannel 交换 ----------
+        function sendSignal(data) {
+            channel.postMessage({ type: 'signal', data: data });
         }
 
-        // ---------- PeerJS 初始化 ----------
-        function initPeer() {
+        // ---------- 初始化 WebRTC ----------
+        function initPeer(initiator) {
             if (peer) {
                 peer.destroy();
                 peer = null;
-                conn = null;
                 connected = false;
-                connecting = false;
-                isHost = false;
-                peerId = null;
             }
-            // 配置多个 STUN/TURN 服务器
+
+            isInitiator = initiator;
+            myColor = initiator ? BLACK : WHITE; // 主机黑棋，从机白棋
+
+            // 创建 simple-peer 实例
             const config = {
-                debug: 2,
+                initiator: initiator,
+                trickle: true,
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun.ekiga.net' },
-                        { urls: 'stun:stun.stunprotocol.org' }
+                        { urls: 'stun:stun1.l.google.com:19302' }
                     ]
                 }
             };
-            peer = new Peer(undefined, config);
-            peer.on('open', (id) => {
-                peerId = id;
-                log('✅ Peer 已开启，ID: ' + id);
-                if (isHost) {
-                    log('主机模式已激活，等待连接...');
-                }
-                updateUI();
-            });
-            peer.on('connection', (incoming) => {
-                if (conn) {
-                    incoming.close();
-                    log('已有连接，拒绝新连接');
-                    return;
-                }
-                conn = incoming;
-                connected = true;
-                connecting = false;
-                isHost = true;
-                myColor = BLACK;
-                log('📞 自动接受连接，对方ID: ' + incoming.peer);
-                setupConnection(conn, false);
-                resetGameLocally();
-                updateUI();
-            });
-            peer.on('error', (err) => {
-                log('❌ Peer 错误: ' + err.message + ' (type: ' + err.type + ')');
-                if (err.type === 'unavailable-id') {
-                    log('该ID已被占用，请使用随机ID');
-                }
-                if (err.type === 'peer-error') {
-                    log('连接失败，请检查对方ID是否正确或对方是否在线');
-                }
-                if (err.message && err.message.toLowerCase().includes('ice')) {
-                    log('ICE 协商失败，可能是网络限制，建议使用同一网络');
-                    tipBox.innerHTML = '⚠️ 检测到网络限制，请确保双方连接同一 Wi-Fi 或热点。跨网络可使用 <a href="https://tailscale.com" target="_blank">Tailscale</a> 虚拟组网。';
-                }
-            });
-            peer.on('disconnected', () => {
-                log('⚠️ Peer 断开，尝试重连...');
-                peer.reconnect();
-            });
-            peer.on('close', () => {
-                log('🔒 Peer 已关闭');
-                peer = null;
-                peerId = null;
-                connected = false;
-                conn = null;
-                isHost = false;
-                updateUI();
-            });
-        }
+            peer = new SimplePeer(config);
 
-        // ---------- 连接事件设置 ----------
-        function setupConnection(connection, isInitiator) {
-            connection.on('open', () => {
-                log('🔗 连接 open 事件触发！');
+            // 监听 signal 事件，发送信令
+            peer.on('signal', (data) => {
+                log('📤 发送信令');
+                sendSignal(data);
+            });
+
+            // 监听连接建立
+            peer.on('connect', () => {
                 connected = true;
-                connecting = false;
+                log('🔗 连接已建立');
+                // 如果是主机，发送初始化消息
                 if (isInitiator) {
-                    isHost = false;
-                    myColor = WHITE;
-                } else {
-                    isHost = true;
-                    myColor = BLACK;
-                }
-                if (isHost) {
-                    connection.send({ type: 'init', color: 'black' });
+                    peer.send(JSON.stringify({ type: 'init', color: 'black' }));
                 }
                 resetGameLocally();
                 updateUI();
-                tipBox.innerHTML = '✅ 连接成功！现在可以开始下棋了。';
             });
-            connection.on('data', (data) => {
-                log('📨 收到数据: ' + JSON.stringify(data));
-                handleData(data);
+
+            // 监听数据
+            peer.on('data', (data) => {
+                try {
+                    const msg = JSON.parse(data);
+                    handleData(msg);
+                } catch (e) {
+                    console.warn('Invalid data:', data);
+                }
             });
-            connection.on('close', () => {
+
+            // 监听错误
+            peer.on('error', (err) => {
+                log('❌ WebRTC 错误: ' + err.message);
+                connected = false;
+                updateUI();
+            });
+
+            // 监听关闭
+            peer.on('close', () => {
+                connected = false;
                 log('🔌 连接已关闭');
-                connected = false;
-                conn = null;
-                resetGameLocally();
-                updateUI();
-                tipBox.innerHTML = '💡 连接已断开，可重新连接。';
-            });
-            connection.on('error', (err) => {
-                log('❌ 连接错误: ' + err.message);
-                if (err.message && err.message.toLowerCase().includes('ice')) {
-                    tipBox.innerHTML = '⚠️ ICE 连接失败，请确保双方在同一网络或使用 Tailscale。';
-                }
-                connected = false;
-                conn = null;
                 updateUI();
             });
+
+            updateUI();
         }
 
-        // ---------- 数据处理 ----------
+        // ---------- 处理接收的数据 ----------
         function handleData(data) {
             switch (data.type) {
                 case 'init': {
                     if (data.color === 'black') {
                         myColor = WHITE;
-                        isHost = false;
                     } else {
                         myColor = BLACK;
-                        isHost = true;
                     }
                     resetGameLocally();
                     updateUI();
@@ -846,138 +735,75 @@
             }
         }
 
-        // ---------- 成为主机 ----------
+        // ---------- 角色选择 ----------
         function becomeHost() {
-            if (!peer) {
-                log('请先初始化 Peer');
-                return;
+            if (connected) return;
+            log('🎯 成为主机 (黑棋)');
+            // 先清理旧的 peer
+            if (peer) {
+                peer.destroy();
+                peer = null;
             }
-            if (!peerId) {
-                log('等待 Peer 获取ID...');
-                return;
-            }
-            if (connected && conn) {
-                log('已有连接，不能切换');
-                return;
-            }
-            if (connecting) {
-                log('正在连接中，请稍候');
-                return;
-            }
-            isHost = true;
-            myColor = BLACK;
-            log('✅ 已切换为主机模式，等待对方连接');
-            tipBox.innerHTML = '💡 复制您的ID发给好友，好友输入后点击连接。';
-            updateUI();
+            // 等待另一个标签页连接
+            initPeer(true);
+            // 监听 channel 消息
+            channel.onmessage = (event) => {
+                if (event.data.type === 'signal') {
+                    if (peer && !connected) {
+                        log('📥 收到信令');
+                        peer.signal(event.data.data);
+                    }
+                }
+            };
         }
 
-        // ---------- 主动连接（从机） ----------
-        function connectToPeer() {
-            const targetId = roomInput.value.trim();
-            if (!targetId) {
-                log('请输入对方ID');
-                return;
+        function becomeClient() {
+            if (connected) return;
+            log('🔗 成为从机 (白棋)');
+            if (peer) {
+                peer.destroy();
+                peer = null;
             }
-            if (targetId.length < 30) {
-                log('⚠️ ID 长度不足，请确认复制了完整的ID');
-                return;
-            }
-            if (!peer) {
-                log('请先初始化 Peer');
-                return;
-            }
-            if (!peerId) {
-                log('等待 Peer 获取ID...');
-                return;
-            }
-            if (targetId === peerId) {
-                log('❌ 不能连接自己');
-                return;
-            }
-            if (connected && conn) {
-                log('已连接，请先断开');
-                return;
-            }
-            if (connecting) {
-                log('正在连接中，请稍候');
-                return;
-            }
-
-            connecting = true;
-            log('🔗 从机: 正在连接 ' + targetId + ' ...');
-            isHost = false;
-            myColor = WHITE;
-            updateUI();
-
-            try {
-                const newConn = peer.connect(targetId);
-                if (!newConn) {
-                    connecting = false;
-                    log('❌ 从机: 连接发起失败');
-                    updateUI();
-                    return;
-                }
-                conn = newConn;
-                setupConnection(conn, true);
-
-                // 超时检测 30秒
-                let timeout = setTimeout(() => {
-                    if (!connected) {
-                        connecting = false;
-                        log('⏰ 从机: 连接超时（30秒），ICE 协商可能失败');
-                        tipBox.innerHTML = '⚠️ 连接超时，请确保双方在同一网络或使用 Tailscale。';
-                        if (conn) {
-                            conn.close();
-                            conn = null;
-                        }
-                        updateUI();
+            // 先等待主机发送信号，所以先创建 peer 但不发信号？
+            // 但 simple-peer 一旦创建就会立即发起连接，但 initiator 为 false，它会等待信号
+            initPeer(false);
+            // 监听 channel 消息
+            channel.onmessage = (event) => {
+                if (event.data.type === 'signal') {
+                    if (peer && !connected) {
+                        log('📥 收到信令');
+                        peer.signal(event.data.data);
                     }
-                }, 30000);
-
-                conn.on('open', () => {
-                    clearTimeout(timeout);
-                    connecting = false;
-                    log('从机: open 事件触发');
-                });
-                conn.on('error', () => {
-                    clearTimeout(timeout);
-                    connecting = false;
-                    log('从机: error 事件触发');
-                });
-                updateUI();
-            } catch (e) {
-                connecting = false;
-                log('❌ 从机: 连接异常: ' + e.message);
-                updateUI();
-            }
+                }
+            };
         }
 
         // ---------- 断开 ----------
         function disconnect() {
-            if (conn) {
-                conn.close();
-                conn = null;
+            if (peer) {
+                peer.destroy();
+                peer = null;
             }
             connected = false;
-            connecting = false;
-            isHost = false;
+            isInitiator = false;
             myColor = BLACK;
             resetGameLocally();
             log('已断开连接');
-            tipBox.innerHTML = '💡 已断开，可重新连接。';
             updateUI();
+            // 清理 channel 监听
+            channel.onmessage = null;
         }
 
         // ---------- 重新开始 ----------
         function restartGame() {
-            if (!connected || !conn) {
+            if (!connected || !peer) {
                 log('未连接');
                 return;
             }
             if (!gameOver) {
                 if (!confirm('确定要重新开始吗？')) return;
             }
-            conn.send({ type: 'restart' });
+            peer.send(JSON.stringify({ type: 'restart' }));
             resetGameLocally();
             log('重新开始');
         }
@@ -1005,15 +831,9 @@
         }, {passive: false});
 
         hostBtn.addEventListener('click', becomeHost);
-        connectBtn.addEventListener('click', connectToPeer);
-        roomInput.addEventListener('input', function() {
-            this.value = this.value.trim();
-            updateUI();
-        });
-        roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') connectBtn.click(); });
+        joinBtn.addEventListener('click', becomeClient);
         restartBtn.addEventListener('click', restartGame);
         leaveBtn.addEventListener('click', disconnect);
-        copyBtn.addEventListener('click', copyId);
 
         // 窗口自适应
         let resizeTimer = null;
@@ -1025,10 +845,9 @@
         // 初始化
         function init() {
             resizeCanvas();
-            initPeer();
+            resetGameLocally();
+            log('💡 请选择「成为主机」或「成为从机」');
             updateUI();
-            log('💡 初始化完成，请选择成为主机或输入对方ID连接');
-            tipBox.innerHTML = '💡 推荐使用同一 Wi-Fi 或手机热点。若跨网络，请安装 <a href="https://tailscale.com" target="_blank">Tailscale</a> 后使用。';
         }
 
         if (document.readyState === 'loading') {
