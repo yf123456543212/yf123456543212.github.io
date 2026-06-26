@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>五子棋 · 互联网联机版</title>
+    <title>五子棋 · P2P 联机版</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -244,17 +244,6 @@
             flex-wrap: wrap;
             align-items: center;
         }
-        .warning-box {
-            background: rgba(255,0,0,0.1);
-            border: 1px solid #ff6b6b;
-            padding: 6px 12px;
-            border-radius: 30px;
-            font-size: 12px;
-            color: #2b1a0e;
-            margin-top: 6px;
-            text-align: center;
-            width: 100%;
-        }
         @media (max-width: 560px) {
             .container { padding: 16px; border-radius: 28px; }
             .title { font-size: 20px; }
@@ -321,9 +310,6 @@
             <button class="btn btn-danger" id="leaveBtn">🚪 断开</button>
         </div>
         <div class="log-area" id="logArea">💡 初始化中...</div>
-        <div class="warning-box" id="warningBox" style="display:none;">
-            ⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 访问。
-        </div>
     </div>
 </div>
 
@@ -331,12 +317,6 @@
 <script>
     (function() {
         'use strict';
-
-        // ---------- 检测协议 ----------
-        if (window.location.protocol === 'file:') {
-            document.getElementById('warningBox').style.display = 'block';
-            alert('⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！\n请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 或 https:// 访问。');
-        }
 
         // DOM 引用
         const canvas = document.getElementById('boardCanvas');
@@ -359,7 +339,6 @@
         const winnerLabel = document.getElementById('winnerLabel');
         const gameOverSub = document.getElementById('gameOverSub');
         const logArea = document.getElementById('logArea');
-        const warningBox = document.getElementById('warningBox');
 
         // 常量
         const BOARD_SIZE = 15;
@@ -394,7 +373,7 @@
         function getOpponent(color) { return color === BLACK ? WHITE : BLACK; }
         function colorToStoneClass(c) { return c === BLACK ? 'black' : 'white'; }
 
-        // ---------- 棋盘绘制 ----------
+        // 棋盘绘制
         function resizeCanvas() {
             const rect = canvas.parentElement.getBoundingClientRect();
             const size = rect.width - 12;
@@ -530,7 +509,7 @@
             return true;
         }
 
-        // ---------- 落子逻辑 ----------
+        // 落子逻辑
         function placeStone(row, col) {
             if (gameOver) return false;
             if (!isMyTurn) return false;
@@ -619,7 +598,7 @@
             updateUI();
         }
 
-        // ---------- UI 更新 ----------
+        // UI 更新
         function updateUI() {
             if (!gameOver) {
                 const name = currentPlayer === BLACK ? '黑棋' : '白棋';
@@ -677,7 +656,7 @@
             restartBtn.disabled = false;
         }
 
-        // ---------- 复制ID ----------
+        // 复制ID
         function copyId() {
             if (!peerId) return;
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -707,7 +686,7 @@
             document.body.removeChild(el);
         }
 
-        // ---------- PeerJS 初始化 ----------
+        // PeerJS 初始化
         function initPeer() {
             if (peer) {
                 peer.destroy();
@@ -718,7 +697,7 @@
                 isHost = false;
                 peerId = null;
             }
-            // 配置多个 STUN/TURN 服务器以提高穿透率
+            // 增加多个 STUN/TURN 服务器，提高穿透率
             const config = {
                 debug: 2,
                 config: {
@@ -727,7 +706,7 @@
                         { urls: 'stun:stun1.l.google.com:19302' },
                         { urls: 'stun:stun.ekiga.net' },
                         { urls: 'stun:stun.stunprotocol.org' },
-                        // 公共 TURN 服务器（免费但可能不稳定）
+                        // 公共 TURN（免费但可能不稳定，可自行部署 TURN 服务器）
                         { urls: 'turn:turn.anyfirewall.com:443?transport=udp', username: 'webrtc', credential: 'webrtc' },
                         { urls: 'turn:turn.anyfirewall.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' }
                     ]
@@ -786,19 +765,16 @@
             });
         }
 
-        // ---------- 连接事件设置 ----------
+        // 连接事件设置
         function setupConnection(connection, isInitiator) {
-            // isInitiator: true 表示从机主动发起，false 表示主机被动接受
             connection.on('open', () => {
                 log('🔗 连接 open 事件触发！');
                 connected = true;
                 connecting = false;
                 if (isInitiator) {
-                    // 从机发起，从机为白棋
                     isHost = false;
                     myColor = WHITE;
                 } else {
-                    // 主机接受，主机为黑棋
                     isHost = true;
                     myColor = BLACK;
                 }
@@ -830,7 +806,7 @@
             });
         }
 
-        // ---------- 数据处理 ----------
+        // 数据处理
         function handleData(data) {
             switch (data.type) {
                 case 'init': {
@@ -866,7 +842,7 @@
             }
         }
 
-        // ---------- 成为主机 ----------
+        // 成为主机
         function becomeHost() {
             if (!peer) {
                 log('请先初始化 Peer');
@@ -890,7 +866,7 @@
             updateUI();
         }
 
-        // ---------- 主动连接（从机） ----------
+        // 主动连接（从机）
         function connectToPeer() {
             const targetId = roomInput.value.trim();
             if (!targetId) {
@@ -939,18 +915,18 @@
                 conn = newConn;
                 setupConnection(conn, true);
 
-                // 超时检测 45秒
+                // 超时检测 60秒（公网环境可能较慢）
                 let timeout = setTimeout(() => {
                     if (!connected) {
                         connecting = false;
-                        log('⏰ 从机: 连接超时（45秒），ICE 协商可能失败');
+                        log('⏰ 从机: 连接超时（60秒），请检查网络或对方是否在线');
                         if (conn) {
                             conn.close();
                             conn = null;
                         }
                         updateUI();
                     }
-                }, 45000);
+                }, 60000);
 
                 conn.on('open', () => {
                     clearTimeout(timeout);
@@ -970,7 +946,7 @@
             }
         }
 
-        // ---------- 断开 ----------
+        // 断开
         function disconnect() {
             if (conn) {
                 conn.close();
@@ -985,7 +961,7 @@
             updateUI();
         }
 
-        // ---------- 重新开始 ----------
+        // 重新开始
         function restartGame() {
             if (!connected || !conn) {
                 log('未连接');
@@ -999,7 +975,7 @@
             log('重新开始');
         }
 
-        // ---------- 诊断 ----------
+        // 诊断
         function runDiagnostic() {
             let msg = '🔍 诊断信息：\n';
             msg += '协议: ' + window.location.protocol + '\n';
@@ -1015,7 +991,7 @@
             console.log(msg);
         }
 
-        // ---------- 事件绑定 ----------
+        // 事件绑定
         canvas.addEventListener('click', function(e) {
             if (gameOver) return;
             if (!isMyTurn) return;
@@ -1062,10 +1038,6 @@
             initPeer();
             updateUI();
             log('💡 初始化完成，请选择成为主机或输入对方ID连接');
-            if (window.location.protocol === 'file:') {
-                log('⚠️ 检测到 file:// 协议，请部署到 Web 服务器后使用 http:// 访问！');
-                warningBox.style.display = 'block';
-            }
         }
 
         if (document.readyState === 'loading') {
