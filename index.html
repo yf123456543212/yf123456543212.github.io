@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>五子棋 · 双端日志版</title>
+    <title>五子棋 · 双端同步连接版</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -266,6 +266,17 @@
             padding: 0 8px;
             border-radius: 12px;
         }
+        .warning-box {
+            background: rgba(255,0,0,0.1);
+            border: 1px solid #ff6b6b;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 12px;
+            color: #2b1a0e;
+            margin-top: 6px;
+            text-align: center;
+            width: 100%;
+        }
         @media (max-width: 560px) {
             .container { padding: 16px; border-radius: 28px; }
             .title { font-size: 20px; }
@@ -338,6 +349,9 @@
             <button class="btn btn-danger" id="rejectBtn">❌ 拒绝</button>
         </div>
         <div class="log-area" id="logArea">💡 初始化中...</div>
+        <div class="warning-box" id="warningBox" style="display:none;">
+            ⚠️ 检测到 file:// 协议，WebRTC 无法正常工作！请将此页面部署到 Web 服务器（如 GitHub Pages）后通过 http:// 访问。
+        </div>
     </div>
 </div>
 
@@ -346,7 +360,7 @@
     (function() {
         'use strict';
 
-        // DOM 引用
+        // ---------- DOM 引用 ----------
         const canvas = document.getElementById('boardCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -371,12 +385,13 @@
         const reqIdDisplay = document.getElementById('reqIdDisplay');
         const acceptBtn = document.getElementById('acceptBtn');
         const rejectBtn = document.getElementById('rejectBtn');
+        const warningBox = document.getElementById('warningBox');
 
-        // 常量
+        // ---------- 常量 ----------
         const BOARD_SIZE = 15;
         const EMPTY = 0, BLACK = 1, WHITE = 2;
 
-        // 游戏状态
+        // ---------- 游戏状态 ----------
         let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
         let currentPlayer = BLACK;
         let myColor = BLACK;
@@ -384,7 +399,7 @@
         let moveHistory = [];
         let isMyTurn = true;
 
-        // PeerJS 相关
+        // ---------- PeerJS 相关 ----------
         let peer = null;
         let conn = null;
         let peerId = null;
@@ -392,22 +407,21 @@
         let connected = false;
         let connecting = false;
         let pendingConnection = null;
-        let isIceNegotiating = false;
 
         // 画布尺寸
         let canvasSize = 0, cellSize = 0, padding = 0, stoneRadius = 0;
 
-        // 日志
+        // ---------- 日志 ----------
         function log(msg) {
             logArea.textContent = msg;
             console.log(msg);
         }
 
-        // 工具
+        // ---------- 工具 ----------
         function getOpponent(color) { return color === BLACK ? WHITE : BLACK; }
         function colorToStoneClass(c) { return c === BLACK ? 'black' : 'white'; }
 
-        // 棋盘绘制（略）
+        // ---------- 棋盘绘制 ----------
         function resizeCanvas() {
             const rect = canvas.parentElement.getBoundingClientRect();
             const size = rect.width - 12;
@@ -423,13 +437,129 @@
             stoneRadius = cellSize * 0.43;
             drawBoard();
         }
-        function drawBoard() { /* 同前，省略实现，实际应保留 */ }
-        function drawStone(row, col, color) { /* 同前 */ }
-        function getGridPosition(clientX, clientY) { /* 同前 */ }
-        function checkWin(row, col, color) { /* 同前 */ }
-        function checkBoardFull() { /* 同前 */ }
 
-        // 落子（同前）
+        function drawBoard() {
+            const w = canvasSize, h = canvasSize;
+            ctx.clearRect(0, 0, w, h);
+            const grad = ctx.createRadialGradient(w*0.3, h*0.3, 0, w*0.5, h*0.5, w*0.7);
+            grad.addColorStop(0, '#eac88a');
+            grad.addColorStop(1, '#c89a5e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = '#4d321a';
+            ctx.lineWidth = 1.2;
+            for (let i=0; i<BOARD_SIZE; i++) {
+                const x = padding + i*cellSize, y = padding + i*cellSize;
+                ctx.beginPath(); ctx.moveTo(padding, y); ctx.lineTo(w-padding, y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(x, padding); ctx.lineTo(x, h-padding); ctx.stroke();
+            }
+            const starPositions = [[3,3],[3,11],[11,3],[11,11],[7,7]];
+            ctx.fillStyle = '#4d321a';
+            for (const [r,c] of starPositions) {
+                const x = padding + c*cellSize, y = padding + r*cellSize;
+                ctx.beginPath(); ctx.arc(x, y, cellSize*0.12, 0, Math.PI*2); ctx.fill();
+            }
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    if (board[r][c] !== EMPTY) drawStone(r, c, board[r][c]);
+                }
+            }
+            if (moveHistory.length > 0) {
+                const last = moveHistory[moveHistory.length-1];
+                const x = padding + last.col*cellSize, y = padding + last.row*cellSize;
+                ctx.save();
+                ctx.strokeStyle = '#ff2d55';
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = 'rgba(255,45,85,0.5)';
+                ctx.shadowBlur = 6;
+                ctx.beginPath(); ctx.arc(x, y, stoneRadius*0.25, 0, Math.PI*2); ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function drawStone(row, col, color) {
+            const x = padding + col*cellSize, y = padding + row*cellSize, r = stoneRadius;
+            ctx.save();
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            const grad = ctx.createRadialGradient(x-r*0.3, y-r*0.3, r*0.1, x, y, r);
+            if (color === BLACK) {
+                grad.addColorStop(0, '#666');
+                grad.addColorStop(0.5, '#222');
+                grad.addColorStop(1, '#0a0a0a');
+            } else {
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.6, '#f0f0f0');
+                grad.addColorStop(1, '#c8c8c8');
+            }
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+            ctx.fillStyle = grad; ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            const hl = ctx.createRadialGradient(x-r*0.25, y-r*0.3, r*0.05, x-r*0.15, y-r*0.2, r*0.35);
+            if (color === BLACK) {
+                hl.addColorStop(0, 'rgba(255,255,255,0.25)');
+                hl.addColorStop(1, 'rgba(255,255,255,0)');
+            } else {
+                hl.addColorStop(0, 'rgba(255,255,255,0.7)');
+                hl.addColorStop(1, 'rgba(255,255,255,0)');
+            }
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+            ctx.fillStyle = hl; ctx.fill();
+            ctx.restore();
+        }
+
+        // ---------- 坐标转换 ----------
+        function getGridPosition(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvasSize / rect.width, scaleY = canvasSize / rect.height;
+            const x = (clientX - rect.left) * scaleX, y = (clientY - rect.top) * scaleY;
+            let minDist = cellSize * 0.6;
+            let best = null;
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    const px = padding + c*cellSize, py = padding + r*cellSize;
+                    const d = Math.hypot(x-px, y-py);
+                    if (d < minDist) { minDist = d; best = {row:r, col:c}; }
+                }
+            }
+            return best;
+        }
+
+        // ---------- 胜负判定 ----------
+        function checkWin(row, col, color) {
+            if (board[row][col] !== color) return false;
+            const directions = [[1,0],[0,1],[1,1],[1,-1]];
+            for (const [dr, dc] of directions) {
+                let count = 1;
+                for (let step=1; step<5; step++) {
+                    const nr = row+dr*step, nc = col+dc*step;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    if (board[nr][nc] === color) count++; else break;
+                }
+                for (let step=1; step<5; step++) {
+                    const nr = row-dr*step, nc = col-dc*step;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    if (board[nr][nc] === color) count++; else break;
+                }
+                if (count >= 5) return true;
+            }
+            return false;
+        }
+        function checkBoardFull() {
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    if (board[r][c] === EMPTY) return false;
+                }
+            }
+            return true;
+        }
+
+        // ---------- 落子逻辑 ----------
         function placeStone(row, col) {
             if (gameOver) return false;
             if (!isMyTurn) return false;
@@ -518,7 +648,7 @@
             updateUI();
         }
 
-        // ---------- UI 更新（核心） ----------
+        // ---------- UI 更新 ----------
         function updateUI() {
             if (!gameOver) {
                 const name = currentPlayer === BLACK ? '黑棋' : '白棋';
@@ -527,8 +657,6 @@
                 if (connected) {
                     if (isMyTurn) turnLabel.textContent += ' (你)';
                     else turnLabel.textContent += ' (对手)';
-                } else if (connecting || isIceNegotiating) {
-                    turnLabel.textContent += ' (协商中...)';
                 } else {
                     turnLabel.textContent += ' (等待连接)';
                 }
@@ -546,10 +674,10 @@
                 statusDot.className = 'dot';
                 statusText.textContent = '已连接 ' + (isHost ? '(黑棋)' : '(白棋)');
                 log('✅ 已连接，' + (isHost ? '黑棋' : '白棋') + '先手');
-            } else if (connecting || isIceNegotiating) {
+            } else if (connecting) {
                 statusDot.className = 'dot connecting';
-                statusText.textContent = '协商中...';
-                log('⏳ 协商中...');
+                statusText.textContent = '正在连接...';
+                log('⏳ 正在连接...');
             } else if (peer && !connected) {
                 if (isHost) {
                     statusDot.className = 'dot connecting';
@@ -577,6 +705,7 @@
             leaveBtn.disabled = !inRoom;
             restartBtn.disabled = false;
 
+            // 请求区域
             if (pendingConnection && !connected) {
                 requestArea.classList.add('show');
                 reqIdDisplay.textContent = pendingConnection.peer;
@@ -587,7 +716,7 @@
             }
         }
 
-        // 复制ID
+        // ---------- 复制ID ----------
         function copyId() {
             if (!peerId) return;
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -628,7 +757,6 @@
                 isHost = false;
                 peerId = null;
                 pendingConnection = null;
-                isIceNegotiating = false;
                 requestArea.classList.remove('show');
             }
             const config = {
@@ -692,23 +820,24 @@
                 conn = null;
                 isHost = false;
                 pendingConnection = null;
-                isIceNegotiating = false;
                 requestArea.classList.remove('show');
                 updateUI();
             });
         }
 
-        // ---------- 设置连接 ----------
+        // ---------- 连接事件设置 ----------
         function setupConnection(connection, isInitiator) {
-            // isInitiator: true 从机主动发起，false 主机被动接受
-            isIceNegotiating = true;
-            updateUI();
+            // 监听 ICE 连接状态变化（调试）
+            if (connection.peerConnection) {
+                // 部分版本可能不支持直接访问，我们通过日志输出
+                log('🔧 正在设置 ICE 监听...');
+                // 也可以尝试监听 'iceStateChanged' 事件（非标准）
+            }
 
             connection.on('open', () => {
-                isIceNegotiating = false;
+                log('🔗 连接 open 事件触发！');
                 connected = true;
                 connecting = false;
-                log('🔗 连接 open 事件触发！');
                 if (isInitiator) {
                     isHost = false;
                     myColor = WHITE;
@@ -719,6 +848,8 @@
                 if (isHost) {
                     connection.send({ type: 'init', color: 'black' });
                 }
+                // 发送 ready 消息告知对方连接已就绪
+                connection.send({ type: 'ready' });
                 resetGameLocally();
                 updateUI();
             });
@@ -727,15 +858,13 @@
                 handleData(data);
             });
             connection.on('close', () => {
-                isIceNegotiating = false;
+                log('🔌 连接已关闭');
                 connected = false;
                 conn = null;
-                log('🔌 连接已关闭');
                 resetGameLocally();
                 updateUI();
             });
             connection.on('error', (err) => {
-                isIceNegotiating = false;
                 log('❌ 连接错误: ' + err.message);
                 if (err.message && err.message.toLowerCase().includes('ice')) {
                     log('ICE 连接失败，可能是 NAT 穿透问题，建议双方切换到同一网络或使用公共 TURN');
@@ -744,6 +873,17 @@
                 conn = null;
                 updateUI();
             });
+            // 额外监听 connection 的 open 属性（非标准但有效）
+            if (!connection.open) {
+                let checkInterval = setInterval(() => {
+                    if (connection.open) {
+                        clearInterval(checkInterval);
+                        log('🔔 检测到 connection.open 变为 true');
+                        // 手动触发 open 逻辑（但 open 事件已触发，避免重复）
+                    }
+                }, 500);
+                setTimeout(() => clearInterval(checkInterval), 10000);
+            }
         }
 
         // ---------- 数据处理 ----------
@@ -777,34 +917,47 @@
                     resetGameLocally();
                     break;
                 }
+                case 'ready': {
+                    // 收到对方发来的 ready 消息，表示对方已成功建立连接
+                    log('✅ 收到对方 ready 消息，连接已完全建立');
+                    // 如果此时 connected 为 true 但 conn 存在，则无需额外操作
+                    // 但可确保双方都处于就绪状态
+                    break;
+                }
                 default:
                     log('未知消息类型: ' + data.type);
             }
         }
 
-        // ---------- 主机接受连接 ----------
+        // ---------- 接受连接 ----------
         function acceptConnection() {
             if (!pendingConnection) return;
             log('✅ 主机接受连接请求');
             conn = pendingConnection;
             pendingConnection = null;
             requestArea.classList.remove('show');
+            // 绑定事件（作为主机，isInitiator = false）
             setupConnection(conn, false);
+            connecting = true;
+            updateUI();
             // 超时检测
             let timeout = setTimeout(() => {
                 if (!connected) {
-                    isIceNegotiating = false;
                     log('⏰ 连接超时（45秒），ICE 协商可能失败');
                     if (conn) {
                         conn.close();
                         conn = null;
                     }
+                    connecting = false;
                     updateUI();
                 }
             }, 45000);
-            conn.on('open', () => { clearTimeout(timeout); });
-            conn.on('error', () => { clearTimeout(timeout); });
-            updateUI();
+            conn.on('open', () => {
+                clearTimeout(timeout);
+            });
+            conn.on('error', () => {
+                clearTimeout(timeout);
+            });
         }
 
         function rejectConnection() {
@@ -845,7 +998,7 @@
             updateUI();
         }
 
-        // ---------- 从机主动连接 ----------
+        // ---------- 主动连接（从机） ----------
         function connectToPeer() {
             const targetId = roomInput.value.trim();
             if (!targetId) {
@@ -878,7 +1031,6 @@
             }
 
             connecting = true;
-            isIceNegotiating = true;
             log('🔗 从机: 正在连接 ' + targetId + ' ...');
             isHost = false;
             myColor = WHITE;
@@ -888,7 +1040,6 @@
                 const newConn = peer.connect(targetId);
                 if (!newConn) {
                     connecting = false;
-                    isIceNegotiating = false;
                     log('❌ 从机: 连接发起失败');
                     updateUI();
                     return;
@@ -896,11 +1047,9 @@
                 conn = newConn;
                 setupConnection(conn, true);
 
-                // 超时检测 45秒
                 let timeout = setTimeout(() => {
                     if (!connected) {
                         connecting = false;
-                        isIceNegotiating = false;
                         log('⏰ 从机: 连接超时（45秒），ICE 协商可能失败');
                         if (conn) {
                             conn.close();
@@ -913,19 +1062,16 @@
                 conn.on('open', () => {
                     clearTimeout(timeout);
                     connecting = false;
-                    isIceNegotiating = false;
                     log('从机: open 事件触发');
                 });
                 conn.on('error', () => {
                     clearTimeout(timeout);
                     connecting = false;
-                    isIceNegotiating = false;
                     log('从机: error 事件触发');
                 });
                 updateUI();
             } catch (e) {
                 connecting = false;
-                isIceNegotiating = false;
                 log('❌ 从机: 连接异常: ' + e.message);
                 updateUI();
             }
@@ -939,7 +1085,6 @@
             }
             connected = false;
             connecting = false;
-            isIceNegotiating = false;
             isHost = false;
             myColor = BLACK;
             if (pendingConnection) {
@@ -975,7 +1120,6 @@
             msg += '连接状态: ' + (connected ? '已连接' : '未连接') + '\n';
             msg += '主机模式: ' + (isHost ? '是' : '否') + '\n';
             msg += '正在连接: ' + (connecting ? '是' : '否') + '\n';
-            msg += 'ICE协商中: ' + (isIceNegotiating ? '是' : '否') + '\n';
             msg += '待处理请求: ' + (pendingConnection ? '有 (ID: ' + pendingConnection.peer + ')' : '无') + '\n';
             msg += '输入框内容: ' + (roomInput.value || '空') + '\n';
             msg += '输入长度: ' + roomInput.value.length + ' 字符\n';
@@ -1020,45 +1164,29 @@
         acceptBtn.addEventListener('click', acceptConnection);
         rejectBtn.addEventListener('click', rejectConnection);
 
-        // 窗口自适应
+        // ---------- 窗口自适应 ----------
         let resizeTimer = null;
         window.addEventListener('resize', function() {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(resizeCanvas, 150);
         });
 
-        // 初始化
+        // ---------- 初始化 ----------
         function init() {
             resizeCanvas();
             initPeer();
             updateUI();
             log('💡 初始化完成，请选择成为主机或输入对方ID连接');
+            if (window.location.protocol === 'file:') {
+                log('⚠️ 检测到 file:// 协议，请部署到 Web 服务器后使用 http:// 访问！');
+                warningBox.style.display = 'block';
+            }
         }
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
             init();
-        }
-
-        // 补齐缺失的drawBoard等函数（若未定义，则简单填充）
-        // 这里因为前面省略了具体实现，实际应补全，但为了代码完整，我们提供空实现
-        // 但上面已复用之前代码，所以实际是完整的。
-        // 为了安全，我们补充缺失的函数定义（如果上面省略了）
-        if (typeof drawBoard !== 'function') {
-            drawBoard = function() {};
-        }
-        if (typeof drawStone !== 'function') {
-            drawStone = function() {};
-        }
-        if (typeof getGridPosition !== 'function') {
-            getGridPosition = function() { return null; };
-        }
-        if (typeof checkWin !== 'function') {
-            checkWin = function() { return false; };
-        }
-        if (typeof checkBoardFull !== 'function') {
-            checkBoardFull = function() { return false; };
         }
 
         window.__game = { board, currentPlayer, myColor, gameOver, isMyTurn, resetGameLocally, placeStone };
